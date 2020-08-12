@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import signal
+import sys
 from typing import Callable, Tuple, Union
 
 from comfoair.asyncio import ComfoAir
@@ -444,35 +445,62 @@ class ComfoAirMqttBridge:
         await self._mqtt.disconnect()
 
 
-async def main(args: argparse.Namespace) -> None:
-    if args.debug:
+async def main(cfg: dict) -> None:
+    if cfg["debug"]:
         logger.setLevel(logging.DEBUG)
-    await ComfoAirMqttBridge(args.port, args.broker).run(hass=args.hass)
+    await ComfoAirMqttBridge(cfg["port"], cfg["broker"]).run(hass=cfg["hass"])
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--broker",
-    default="mqtt://localhost",
-    type=str,
-    required=False,
-    help="MQTT broker (default: %(default)s)",
-)
-parser.add_argument(
-    "--port",
-    default="/dev/ttyUSB0",
-    type=str,
-    required=False,
-    help="Serial port (default: %(default)s)",
-)
-parser.add_argument(
-    "--hass",
-    action="store_true",
-    help="Publish discovery information for Home Assistant",
-)
-parser.add_argument(
-    "--debug",
-    action="store_true",
-    help="Enable logging of debug messages",
-)
-asyncio.run(main(parser.parse_args()))
+def options() -> dict:
+    cfg = {
+        "config": "/var/lib/comfoair-mqtt-bridge/config.json",
+        "broker": "mqtt://localhost",
+        "port": "/dev/ttyUSB0",
+    }
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        help=f"Location of config file (default: {cfg['config']})",
+    )
+    parser.add_argument(
+        "--broker",
+        help=f"MQTT broker (default: {cfg['broker']})",
+    )
+    parser.add_argument(
+        "--port",
+        help=f"Serial port (default: {cfg['port']})",
+    )
+    parser.add_argument(
+        "--hass",
+        action="store_true",
+        help="Publish discovery information for Home Assistant",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable logging of debug messages",
+    )
+
+    args = parser.parse_args()
+    filename = args.config or cfg["config"]
+
+    try:
+        with open(filename, "r") as f:
+            cfg.update(json.load(f))
+    except OSError as exc:
+        if args.config or not isinstance(exc, FileNotFoundError):
+            logger.error("Failed to open configuration file: %s", exc)
+            sys.exit(1)
+    except json.JSONDecodeError as exc:
+        logger.error("Failed to parse configuration file: %s", exc)
+        sys.exit(1)
+
+    for key, value in vars(args).items():
+        if value is not None:
+            cfg[key] = value
+
+    return cfg
+
+
+asyncio.run(main(options()))

@@ -1,0 +1,4 @@
+{
+   "broker": "mqtt://localhost",
+   "port": "/dev/ttyUSB0"
+}
