@@ -97,9 +97,8 @@ class ComfoAirMqttBridge:
         ComfoAir.TEMP_SUPPLY: ("supply_temperature", "°C"),
     }
 
-    def __init__(self, port: str, broker: str):
+    def __init__(self, port: str):
         self._ca = ComfoAir(port)
-        self._broker = broker
         self._name = "ComfoAir"
         self._device_id = self._ca.device_id()
         self._base_topic = f"{self._name}/{self._device_id}"
@@ -417,13 +416,13 @@ class ComfoAirMqttBridge:
 
             await self._update_availability(available)
 
-    async def run(self, hass: bool = True) -> None:
+    async def run(self, broker: str, hass: bool) -> None:
         loop = asyncio.get_running_loop()
         for sig in {signal.SIGINT, signal.SIGTERM}:
             loop.add_signal_handler(sig, self._cancel)
 
         asyncio.create_task(self._watchdog())
-        await self._mqtt.connect(self._broker)
+        await self._mqtt.connect(broker)
         await self._ca.connect()
         await self._subscribe_commands()
 
@@ -448,7 +447,7 @@ class ComfoAirMqttBridge:
 async def main(cfg: dict) -> None:
     if cfg["debug"]:
         logger.setLevel(logging.DEBUG)
-    await ComfoAirMqttBridge(cfg["port"], cfg["broker"]).run(hass=cfg["hass"])
+    await ComfoAirMqttBridge(cfg["port"]).run(cfg["broker"], cfg["hass"])
 
 
 def options() -> dict:
