@@ -395,7 +395,7 @@ class ComfoAirMqttBridge:
                 await self._process_packet(message.publish_packet)
 
     async def _update_availability(self, status: bool) -> None:
-        if self._available != status:
+        if self._available != status and self._mainloop_task:
             self._available = status
             await self._publish_availability(self._available)
 
