@@ -12,6 +12,7 @@ Tested devices:
 * Python >= 3.7
 * [hbmqtt](https://pypi.org/project/hbmqtt/)
 * [pycomfoair](https://pypi.org/project/pycomfoair/) >= 0.0.4
+* [python-slugify](https://pypi.org/project/python-slugify/)
 
 ## How to use
 
