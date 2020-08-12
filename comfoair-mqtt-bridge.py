@@ -185,7 +185,7 @@ class ComfoAirMqttBridge:
             return
         self._cache[cmd] = data
 
-        logger.debug("Raw event (%#x): %s" % (cmd, data.hex()))
+        logger.debug("Raw event (%#x): %s", cmd, data.hex())
 
         if cmd == 0x3C and len(self.CC_SEGMENTS) == len(data):
             segments = []
@@ -243,7 +243,7 @@ class ComfoAirMqttBridge:
 
         elif cmd == 0xA2 and len(data) == 14:
             # Information about connector board
-            version = "{data[0]}.{data[1]}"
+            version = f"{data[0]}.{data[1]}"
             model = data[2:12].decode("ascii")
 
             what = "Board"
@@ -252,11 +252,11 @@ class ComfoAirMqttBridge:
 
             if data[12]:
                 logger.debug(
-                    "CC-Ease: %s.%s" % (data[12] >> 4 & 0xF, data[12] & 0xF)
+                    "CC-Ease: %s.%s", data[12] >> 4 & 0xF, data[12] & 0xF
                 )
             if data[13]:
                 logger.debug(
-                    "CC-Luxe: %s.%s" % (data[13] >> 4 & 0xF, data[13] & 0xF)
+                    "CC-Luxe: %s.%s", data[13] >> 4 & 0xF, data[13] & 0xF
                 )
 
     async def _process_packet(self, packet: PublishPacket) -> None:
