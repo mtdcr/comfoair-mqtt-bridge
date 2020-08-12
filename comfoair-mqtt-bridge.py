@@ -28,12 +28,11 @@ import logging
 import signal
 from typing import Callable, Tuple, Union
 
+from comfoair.asyncio import ComfoAir
 from hbmqtt.client import ClientException, MQTTClient
 from hbmqtt.mqtt.constants import QOS_2
 from hbmqtt.mqtt.publish import PublishPacket
 from slugify import slugify
-
-from comfoair.asyncio import ComfoAir
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler())
