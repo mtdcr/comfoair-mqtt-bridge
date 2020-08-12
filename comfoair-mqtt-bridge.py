@@ -280,10 +280,10 @@ class ComfoAirMqttBridge:
     ) -> None:
         if isinstance(message, dict):
             message = json.dumps(message)
-        elif isinstance(message, (float, int)):
-            message = str(message)
         elif isinstance(message, bool):
             message = [b"OFF", b"ON"][message]
+        elif isinstance(message, (float, int)):
+            message = str(message)
 
         if isinstance(message, str):
             message = message.encode("utf-8")
