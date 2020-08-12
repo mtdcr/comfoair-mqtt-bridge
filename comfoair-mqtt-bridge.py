@@ -98,7 +98,6 @@ class ComfoAirMqttBridge:
 
     def __init__(self, port: str, broker: str):
         self._ca = ComfoAir(port)
-        self._mqtt = MQTTClient()
         self._broker = broker
         self._name = "ComfoAir"
         self._device_id = self._ca.device_id()
@@ -113,6 +112,16 @@ class ComfoAirMqttBridge:
         self._available = None
         self._data_received = asyncio.Event()
         self._cancelled = False
+        self._mqtt = MQTTClient(
+            config={
+                "will": {
+                    "topic": self._topic("availability"),
+                    "message": b"offline",
+                    "qos": QOS_2,
+                    "retain": True,
+                }
+            }
+        )
 
         self._ca.add_listener(self._raw_event)
         for sensor in self.SENSORS:
