@@ -270,18 +270,18 @@ class ComfoAirMqttBridge:
     async def _publish(
         self, topic: str, message: Union[bool, bytes, dict, float, int, str]
     ) -> None:
-        if type(message) == dict:
+        if isinstance(message, dict):
             message = json.dumps(message)
-        elif type(message) in (float, int):
+        elif isinstance(message, (float, int)):
             message = str(message)
-        elif type(message) == bool:
+        elif isinstance(message, bool):
             message = [b"OFF", b"ON"][message]
 
-        if type(message) == str:
+        if isinstance(message, str):
             message = message.encode("utf-8")
 
         logger.debug(f"Publish: {topic} {message}")
-        assert type(message) == bytes
+        assert isinstance(message, bytes)
         await self._mqtt.publish(topic, message, qos=QOS_2, retain=True)
 
     async def _publish_availability(self, status: bool) -> None:
