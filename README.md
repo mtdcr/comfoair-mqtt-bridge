@@ -29,6 +29,8 @@ When used in combination with Home Assistant, add the `--hass` option.
 
 To see debug messages, add `--debug`.
 
+Instead of specifying `broker` and `port` on the command-line, you can store them in a [configuration file](config.json) (option `--config`, default path: /var/lib/comfoair-mqtt-bridge/config.json).
+
 A `/etc/ser2net.conf` should look similar to this one:
 ```
 192.168.3.50,51765:raw:0:/dev/serial/by-id/usb-067b_2303-if00-port0:9600 8DATABITS NONE 1STOPBIT -XONXOFF -RTSCTS -HANGUP_WHEN_DONE
