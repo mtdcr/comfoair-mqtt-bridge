@@ -10,7 +10,7 @@ Tested devices:
 
 ## Dependencies
 * Python >= 3.7
-* [hbmqtt](https://pypi.org/project/hbmqtt/)
+* [asyncio-mqtt](https://pypi.org/project/asyncio-mqtt/) >= 0.7.0
 * [pycomfoair](https://pypi.org/project/pycomfoair/) >= 0.0.4
 * [python-slugify](https://pypi.org/project/python-slugify/)
 
@@ -57,7 +57,7 @@ SupplementaryGroups=dialout
 [Install]
 WantedBy=multi-user.target
 ```
-Edit paths and URLs to match your setup. In this example, `/srv/homeassistant` is a Python [venv](https://docs.python.org/3/library/venv.html), into which [hbmqtt](https://pypi.org/project/hbmqtt/) and [pycomfoair](https://pypi.org/project/pycomfoair/) were installed using [pip](https://docs.python.org/3/installing/index.html).
+Edit paths and URLs to match your setup. In this example, `/srv/homeassistant` is a Python [venv](https://docs.python.org/3/library/venv.html), into which the dependencies were installed using [pip](https://docs.python.org/3/installing/index.html).
 
 Then enable and start the service:
 ```sh

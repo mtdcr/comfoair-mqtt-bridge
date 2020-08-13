@@ -26,13 +26,14 @@ import asyncio
 import json
 import logging
 import signal
+import ssl
 import sys
+from functools import partial
 from typing import Callable, Tuple, Union
+from urllib.parse import urlparse
 
+from asyncio_mqtt import Client, MqttError, Will
 from comfoair.asyncio import ComfoAir
-from hbmqtt.client import ClientException, MQTTClient
-from hbmqtt.mqtt.constants import QOS_2
-from hbmqtt.mqtt.publish import PublishPacket
 from slugify import slugify
 
 logger = logging.getLogger(__name__)
@@ -112,20 +113,6 @@ class ComfoAirMqttBridge:
         self._available = None
         self._data_received = asyncio.Event()
         self._cancelled = False
-        self._mqtt = MQTTClient(
-            config={
-                "will": {
-                    "topic": self._topic("availability"),
-                    "message": b"offline",
-                    "qos": QOS_2,
-                    "retain": True,
-                }
-            }
-        )
-
-        self._ca.add_listener(self._raw_event)
-        for sensor in self.SENSORS:
-            self._ca.add_cooked_listener(sensor, self._cooked_event)
 
     def _topic(self, name):
         return f"{self._base_topic}/{name}"
@@ -168,17 +155,17 @@ class ComfoAirMqttBridge:
         return await self._emulate_keypress(data, 1000)
 
     async def _cooked_event(
-        self, attribute: ComfoAir.Attribute, value: Union[float, int, str]
+        self, mqtt, attribute: ComfoAir.Attribute, value: Union[float, int, str]
     ) -> None:
         logger.debug("Cooked event (%s): %s", attribute, value)
 
         name = self.SENSORS[attribute][0]
-        await self._publish(self._topic(name), value)
+        await self._publish(mqtt, self._topic(name), value)
 
         if attribute == ComfoAir.FAN_SPEED_MODE:
-            await self._publish(self._topic("state"), value > 1)
+            await self._publish(mqtt, self._topic("state"), value > 1)
 
-    async def _raw_event(self, ev: Tuple[int, bytes]) -> None:
+    async def _raw_event(self, mqtt, ev: Tuple[int, bytes]) -> None:
         self._data_received.set()
         cmd, data = ev
         if self._cache.get(cmd) == data:
@@ -259,24 +246,26 @@ class ComfoAirMqttBridge:
                     "CC-Luxe: %s.%s", data[13] >> 4 & 0xF, data[13] & 0xF
                 )
 
-    async def _process_packet(self, packet: PublishPacket) -> None:
-        topic = packet.variable_header.topic_name
-        callbacks = self._callbacks.get(topic)
+    async def _process_packet(self, message) -> None:
+        callbacks = self._callbacks.get(message.topic)
         if not callbacks:
-            logger.error("Unhandled topic: %s", topic)
+            logger.error("Unhandled topic: %s", message.topic)
             return
 
         try:
-            data = packet.payload.data.decode("utf-8")
+            data = message.payload.decode("utf-8")
         except UnicodeDecodeError:
-            logger.error("Invalid payload: %s", packet.payload.data)
+            logger.error("Invalid payload: %s", message.payload)
         else:
             for callback in callbacks:
                 if not await callback(data):
                     logger.error("Invalid parameter: %s", data)
 
     async def _publish(
-        self, topic: str, message: Union[bool, bytes, dict, float, int, str]
+        self,
+        mqtt,
+        topic: str,
+        message: Union[bool, bytes, dict, float, int, str],
     ) -> None:
         if isinstance(message, dict):
             message = json.dumps(message)
@@ -290,14 +279,14 @@ class ComfoAirMqttBridge:
 
         logger.debug(f"Publish: {topic} {message}")
         assert isinstance(message, bytes)
-        await self._mqtt.publish(topic, message, qos=QOS_2, retain=True)
+        await mqtt.publish(topic, message, qos=2, retain=True)
 
-    async def _publish_availability(self, status: bool) -> None:
+    async def _publish_availability(self, mqtt, status: bool) -> None:
         await self._publish(
-            self._topic("availability"), [b"offline", b"online"][status]
+            mqtt, self._topic("availability"), [b"offline", b"online"][status]
         )
 
-    async def _publish_hass_config(self) -> None:
+    async def _publish_hass_config(self, mqtt) -> None:
         device = {
             "name": self._name,
             "identifiers": [self._device_id],
@@ -324,7 +313,7 @@ class ComfoAirMqttBridge:
         }
 
         topic = self._hass_topic("fan", object_id)
-        await self._publish(topic, config)
+        await self._publish(mqtt, topic, config)
 
         # https://www.home-assistant.io/integrations/sensor.mqtt/
         for sensor, attrs in self.SENSORS.items():
@@ -345,61 +334,60 @@ class ComfoAirMqttBridge:
                     config["icon"] = "mdi:fan"
 
             topic = self._hass_topic("sensor", object_id)
-            await self._publish(topic, config)
+            await self._publish(mqtt, topic, config)
 
     async def _subscribe(
-        self, topic: str, callback: Callable[[str], None]
+        self, mqtt, topic: str, callback: Callable[[str], None]
     ) -> None:
         if topic not in self._callbacks:
             self._callbacks[topic] = set()
         self._callbacks[topic].add(callback)
-        topics = [(topic, QOS_2)]
-        await self._mqtt.subscribe(topics)
+        await mqtt.subscribe(topic)
 
     async def _unsubscribe(
-        self, topic: str, callback: Callable[[str], None]
+        self, mqtt, topic: str, callback: Callable[[str], None]
     ) -> None:
         self._callbacks[topic].remove(callback)
         if not self._callbacks[topic]:
             del self._callbacks[topic]
-        await self._mqtt.unsubscribe([topic])
+        await mqtt.unsubscribe(topic)
 
-    async def _subscribe_commands(self) -> None:
-        await self._subscribe(self._topic("command"), self._cmd_on_off)
-        await self._subscribe(self._topic("speed_command"), self._cmd_speed)
-        await self._subscribe(self._topic("keys_short"), self._keys_short)
-        await self._subscribe(self._topic("keys_long"), self._keys_long)
+    async def _subscribe_commands(self, mqtt) -> None:
+        await self._subscribe(mqtt, self._topic("command"), self._cmd_on_off)
+        await self._subscribe(
+            mqtt, self._topic("speed_command"), self._cmd_speed
+        )
+        await self._subscribe(mqtt, self._topic("keys_short"), self._keys_short)
+        await self._subscribe(mqtt, self._topic("keys_long"), self._keys_long)
 
-    async def _unsubscribe_commands(self) -> None:
-        await self._unsubscribe(self._topic("command"), self._cmd_on_off)
-        await self._unsubscribe(self._topic("speed_command"), self._cmd_speed)
-        await self._unsubscribe(self._topic("keys_short"), self._keys_short)
-        await self._unsubscribe(self._topic("keys_long"), self._keys_long)
+    async def _unsubscribe_commands(self, mqtt) -> None:
+        await self._unsubscribe(mqtt, self._topic("command"), self._cmd_on_off)
+        await self._unsubscribe(
+            mqtt, self._topic("speed_command"), self._cmd_speed
+        )
+        await self._unsubscribe(
+            mqtt, self._topic("keys_short"), self._keys_short
+        )
+        await self._unsubscribe(mqtt, self._topic("keys_long"), self._keys_long)
 
     def _cancel(self) -> None:
         loop = asyncio.get_running_loop()
-        for sig in {signal.SIGINT, signal.SIGTERM}:
-            loop.remove_signal_handler(sig)
+        loop.remove_signal_handler(signal.SIGTERM)
         self._cancelled = True
         if self._mainloop_task:
             self._mainloop_task.cancel()
 
-    async def _mainloop(self) -> None:
+    async def _mainloop(self, messages) -> None:
         logger.debug("Running mainloop")
-        while True:
-            try:
-                message = await self._mqtt.deliver_message()
-            except ClientException as exc:
-                logger.error("Client exception: %s", exc)
-            else:
-                await self._process_packet(message.publish_packet)
+        async for message in messages:
+            await self._process_packet(message)
 
-    async def _update_availability(self, status: bool) -> None:
+    async def _update_availability(self, mqtt, status: bool) -> None:
         if self._available != status and self._mainloop_task:
             self._available = status
-            await self._publish_availability(self._available)
+            await self._publish_availability(mqtt, self._available)
 
-    async def _watchdog(self) -> None:
+    async def _watchdog(self, mqtt) -> None:
         logger.info("Watchdog: Starting")
         while not self._cancelled:
             logger.debug("Watchdog: Waiting for data")
@@ -414,40 +402,76 @@ class ComfoAirMqttBridge:
             else:
                 available = True
 
-            await self._update_availability(available)
+            await self._update_availability(mqtt, available)
 
     async def run(self, broker: str, hass: bool) -> None:
         loop = asyncio.get_running_loop()
-        for sig in {signal.SIGINT, signal.SIGTERM}:
-            loop.add_signal_handler(sig, self._cancel)
+        loop.add_signal_handler(signal.SIGTERM, self._cancel)
 
-        asyncio.create_task(self._watchdog())
-        await self._mqtt.connect(broker)
-        await self._ca.connect()
-        await self._subscribe_commands()
+        p = urlparse(broker, scheme="mqtt")
+        if p.scheme not in ("mqtt", "mqtts") or not p.hostname:
+            raise ValueError
 
-        if hass:
-            await self._ca.request_firmware_version()
-            await self._has_fw_version.wait()
-            await self._publish_hass_config()
+        tls_context = None
+        if p.scheme == "mqtts":
+            tls_context = ssl.create_default_context()
 
-        if not self._cancelled:
-            self._mainloop_task = asyncio.create_task(self._mainloop())
-            try:
-                await self._mainloop_task
-            except asyncio.CancelledError:
-                pass
+        will = Will(
+            self._topic("availability"), payload=b"offline", qos=2, retain=True
+        )
+        async with Client(
+            p.hostname,
+            port=p.port or p.scheme == "mqtt" and 1883 or 8883,
+            username=p.username,
+            password=p.password,
+            logger=logger,
+            tls_context=tls_context,
+            will=will,
+        ) as mqtt:
+            asyncio.create_task(self._watchdog(mqtt))
 
-        await self._update_availability(False)
-        await self._unsubscribe_commands()
-        await self._ca.shutdown()
-        await self._mqtt.disconnect()
+            raw_event = partial(self._raw_event, mqtt)
+            cooked_event = partial(self._cooked_event, mqtt)
+
+            await self._ca.connect()
+            self._ca.add_listener(raw_event)
+            for sensor in self.SENSORS:
+                self._ca.add_cooked_listener(sensor, cooked_event)
+
+            async with mqtt.unfiltered_messages() as messages:
+                await self._subscribe_commands(mqtt)
+
+                if hass:
+                    await self._ca.request_firmware_version()
+                    await self._has_fw_version.wait()
+                    await self._publish_hass_config(mqtt)
+
+                if not self._cancelled:
+                    self._mainloop_task = asyncio.create_task(
+                        self._mainloop(messages)
+                    )
+                    try:
+                        await self._mainloop_task
+                    except asyncio.CancelledError:
+                        pass
+
+                await self._update_availability(mqtt, False)
+                await self._unsubscribe_commands(mqtt)
+
+            for sensor in self.SENSORS:
+                self._ca.remove_cooked_listener(sensor, cooked_event)
+            self._ca.remove_listener(raw_event)
+            await self._ca.shutdown()
 
 
 async def main(cfg: dict) -> None:
     if cfg["debug"]:
         logger.setLevel(logging.DEBUG)
-    await ComfoAirMqttBridge(cfg["port"]).run(cfg["broker"], cfg["hass"])
+    try:
+        await ComfoAirMqttBridge(cfg["port"]).run(cfg["broker"], cfg["hass"])
+    except MqttError as exc:
+        logger.critical(exc)
+        sys.exit(1)
 
 
 def options() -> dict:
@@ -459,26 +483,19 @@ def options() -> dict:
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--config",
-        help=f"Location of config file (default: {cfg['config']})",
+        "--config", help=f"Location of config file (default: {cfg['config']})"
     )
     parser.add_argument(
-        "--broker",
-        help=f"MQTT broker (default: {cfg['broker']})",
+        "--broker", help=f"MQTT broker (default: {cfg['broker']})"
     )
-    parser.add_argument(
-        "--port",
-        help=f"Serial port (default: {cfg['port']})",
-    )
+    parser.add_argument("--port", help=f"Serial port (default: {cfg['port']})")
     parser.add_argument(
         "--hass",
         action="store_true",
         help="Publish discovery information for Home Assistant",
     )
     parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable logging of debug messages",
+        "--debug", action="store_true", help="Enable logging of debug messages"
     )
 
     args = parser.parse_args()
@@ -502,4 +519,7 @@ def options() -> dict:
     return cfg
 
 
-asyncio.run(main(options()))
+try:
+    asyncio.run(main(options()))
+except KeyboardInterrupt:
+    pass
