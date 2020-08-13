@@ -45,11 +45,14 @@ After=network-online.target
 
 [Service]
 Type=simple
-DynamicUser=yes
 ExecStart=/srv/homeassistant/bin/python /usr/local/bin/comfoair-mqtt-bridge.py --broker mqtt://broker.local --port /dev/ttyUSB0 --hass
 Restart=on-failure
 RestartSec=5s
-DeviceAllow=/dev/null rw
+DynamicUser=yes
+StateDirectory=comfoair-mqtt-bridge
+DevicePolicy=closed
+DeviceAllow=char-ttyUSB
+SupplementaryGroups=dialout
 
 [Install]
 WantedBy=multi-user.target
