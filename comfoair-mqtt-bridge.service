@@ -1,0 +1,17 @@
+[Unit]
+Description=ComfoAir-MQTT-Bridge
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/comfoair-mqtt-bridge.py --hass
+Restart=on-failure
+RestartSec=5s
+DynamicUser=yes
+StateDirectory=comfoair-mqtt-bridge
+DevicePolicy=closed
+DeviceAllow=char-ttyUSB
+SupplementaryGroups=dialout
+
+[Install]
+WantedBy=multi-user.target
