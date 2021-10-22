@@ -90,13 +90,15 @@ class ComfoAirMqttBridge:
     SENSORS = {
         ComfoAir.AIRFLOW_EXHAUST: ("exhaust_airflow", "%"),
         ComfoAir.AIRFLOW_SUPPLY: ("supply_airflow", "%"),
-        ComfoAir.FAN_SPEED_MODE: ("speed_mode", None),
+        ComfoAir.FAN_SPEED_MODE: ("preset_mode", None),
         ComfoAir.TEMP_COMFORT: ("comfort_temperature", "°C"),
         ComfoAir.TEMP_EXHAUST: ("exhaust_temperature", "°C"),
         ComfoAir.TEMP_OUTSIDE: ("outside_temperature", "°C"),
         ComfoAir.TEMP_RETURN: ("return_temperature", "°C"),
         ComfoAir.TEMP_SUPPLY: ("supply_temperature", "°C"),
     }
+
+    PRESET_MODES = ["off", "low", "medium", "high"]
 
     def __init__(self, port: str):
         self._ca = ComfoAir(port)
@@ -135,7 +137,10 @@ class ComfoAirMqttBridge:
         return speed and await self._set_speed(speed)
 
     async def _cmd_speed(self, data: str) -> bool:
-        return data.isnumeric() and await self._set_speed(int(data))
+        if data not in self.PRESET_MODES:
+            return False
+        speed = self.PRESET_MODES.index(data) + 1
+        return await self._set_speed(speed)
 
     async def _emulate_keypress(self, data: str, ms: int) -> None:
         if not data.isnumeric():
@@ -160,10 +165,14 @@ class ComfoAirMqttBridge:
         logger.debug("Cooked event (%s): %s", attribute, value)
 
         name = self.SENSORS[attribute][0]
-        await self._publish(mqtt, self._topic(name), value)
 
         if attribute == ComfoAir.FAN_SPEED_MODE:
+            if value not in (1, 2, 3, 4):
+                return
             await self._publish(mqtt, self._topic("state"), value > 1)
+            value = self.PRESET_MODES[value - 1]
+
+        await self._publish(mqtt, self._topic(name), value)
 
     async def _raw_event(self, mqtt, ev: Tuple[int, bytes]) -> None:
         self._data_received.set()
@@ -302,12 +311,9 @@ class ComfoAirMqttBridge:
             "command_topic": self._topic("command"),
             "device": device,
             "name": self._name,
-            "payload_off_speed": "1",
-            "payload_low_speed": "2",
-            "payload_medium_speed": "3",
-            "payload_high_speed": "4",
-            "speed_command_topic": self._topic("speed_command"),
-            "speed_state_topic": self._topic("speed_mode"),
+            "preset_mode_command_topic": self._topic("preset_mode_command"),
+            "preset_mode_state_topic": self._topic("preset_mode"),
+            "preset_modes": self.PRESET_MODES,
             "state_topic": self._topic("state"),
             "unique_id": object_id,
         }
@@ -355,7 +361,7 @@ class ComfoAirMqttBridge:
     async def _subscribe_commands(self, mqtt) -> None:
         await self._subscribe(mqtt, self._topic("command"), self._cmd_on_off)
         await self._subscribe(
-            mqtt, self._topic("speed_command"), self._cmd_speed
+            mqtt, self._topic("preset_mode_command"), self._cmd_speed
         )
         await self._subscribe(mqtt, self._topic("keys_short"), self._keys_short)
         await self._subscribe(mqtt, self._topic("keys_long"), self._keys_long)
@@ -363,7 +369,7 @@ class ComfoAirMqttBridge:
     async def _unsubscribe_commands(self, mqtt) -> None:
         await self._unsubscribe(mqtt, self._topic("command"), self._cmd_on_off)
         await self._unsubscribe(
-            mqtt, self._topic("speed_command"), self._cmd_speed
+            mqtt, self._topic("preset_mode_command"), self._cmd_speed
         )
         await self._unsubscribe(
             mqtt, self._topic("keys_short"), self._keys_short
