@@ -64,6 +64,8 @@ Then enable and start the service:
 systemctl enable comfoair-mqtt-bridge.service
 systemctl start comfoair-mqtt-bridge.service
 ```
+## Notes regarding MQTT
+* username/password are passed as part of the `--broker` parameter, e.g. `--broker mqtt://username:password@broker.local`
 
 ## Notes regarding Home Assistant
 * Home Assistant will auto-detect a device with multiple entities (currently `fan.comfoair` and some sensors).
