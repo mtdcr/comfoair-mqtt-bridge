@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "comfoair-mqtt-bridge"
+version = "0.1.0"
+description = "A bridge between Zehnder ComfoAir ventilation units and MQTT with support for Home Assistant"
+authors = ["Andreas Oberritter <obi@saftware.de>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+aiomqtt = "^2.3.0"
+python = "^3.8"
+pycomfoair = "^0.2.0"
+python-slugify = "^8.0.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
