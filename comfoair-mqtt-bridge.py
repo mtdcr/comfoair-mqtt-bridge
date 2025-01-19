@@ -32,7 +32,7 @@ from functools import partial
 from typing import Callable, Tuple, Union
 from urllib.parse import urlparse
 
-from asyncio_mqtt import Client, MqttError, Will
+from aiomqtt import Client, MqttError, Will
 from comfoair.asyncio import ComfoAir
 from slugify import slugify
 
@@ -111,10 +111,8 @@ class ComfoAirMqttBridge:
         self._model = None
         self._fw_version = None
         self._has_fw_version = asyncio.Event()
-        self._mainloop_task = None
         self._available = None
         self._data_received = asyncio.Event()
-        self._cancelled = False
 
     def _topic(self, name: str) -> str:
         return f"{self._base_topic}/{name}"
@@ -256,7 +254,7 @@ class ComfoAirMqttBridge:
                 )
 
     async def _process_packet(self, message) -> None:
-        callbacks = self._callbacks.get(message.topic)
+        callbacks = self._callbacks.get(message.topic.value)
         if not callbacks:
             logger.error("Unhandled topic: %s", message.topic)
             return
@@ -376,26 +374,14 @@ class ComfoAirMqttBridge:
         )
         await self._unsubscribe(mqtt, self._topic("keys_long"), self._keys_long)
 
-    def _cancel(self) -> None:
-        loop = asyncio.get_running_loop()
-        loop.remove_signal_handler(signal.SIGTERM)
-        self._cancelled = True
-        if self._mainloop_task:
-            self._mainloop_task.cancel()
-
-    async def _mainloop(self, messages) -> None:
-        logger.debug("Running mainloop")
-        async for message in messages:
-            await self._process_packet(message)
-
     async def _update_availability(self, mqtt, status: bool) -> None:
-        if self._available != status and self._mainloop_task:
+        if self._available != status:
             self._available = status
             await self._publish_availability(mqtt, self._available)
 
     async def _watchdog(self, mqtt) -> None:
         logger.info("Watchdog: Starting")
-        while not self._cancelled:
+        while True:
             logger.debug("Watchdog: Waiting for data")
             self._data_received.clear()
 
@@ -411,9 +397,6 @@ class ComfoAirMqttBridge:
             await self._update_availability(mqtt, available)
 
     async def run(self, broker: str, hass: bool) -> None:
-        loop = asyncio.get_running_loop()
-        loop.add_signal_handler(signal.SIGTERM, self._cancel)
-
         p = urlparse(broker, scheme="mqtt")
         if p.scheme not in ("mqtt", "mqtts") or not p.hostname:
             raise ValueError
@@ -444,25 +427,21 @@ class ComfoAirMqttBridge:
             for sensor in self.SENSORS:
                 self._ca.add_cooked_listener(sensor, cooked_event)
 
-            async with mqtt.unfiltered_messages() as messages:
-                await self._subscribe_commands(mqtt)
+            await self._subscribe_commands(mqtt)
 
-                if hass:
-                    await self._ca.request_firmware_version()
-                    await self._has_fw_version.wait()
-                    await self._publish_hass_config(mqtt)
+            if hass:
+                await self._ca.request_firmware_version()
+                await self._has_fw_version.wait()
+                await self._publish_hass_config(mqtt)
 
-                if not self._cancelled:
-                    self._mainloop_task = asyncio.create_task(
-                        self._mainloop(messages)
-                    )
-                    try:
-                        await self._mainloop_task
-                    except asyncio.CancelledError:
-                        pass
+            try:
+                async for message in mqtt.messages:
+                    await self._process_packet(message)
+            except asyncio.CancelledError:
+                pass
 
-                await self._update_availability(mqtt, False)
-                await self._unsubscribe_commands(mqtt)
+            await self._update_availability(mqtt, False)
+            await self._unsubscribe_commands(mqtt)
 
             for sensor in self.SENSORS:
                 self._ca.remove_cooked_listener(sensor, cooked_event)

@@ -9,9 +9,9 @@ Tested devices:
 [Home Assistant](https://www.home-assistant.io/), when configured for [MQTT discovery](https://www.home-assistant.io/docs/mqtt/discovery/), can auto-detect fans and sensors published by this program.
 
 ## Dependencies
-* Python >= 3.7
-* [asyncio-mqtt](https://pypi.org/project/asyncio-mqtt/) >= 0.7.0
-* [pycomfoair](https://pypi.org/project/pycomfoair/) >= 0.0.4
+* Python >= 3.8
+* [aiomqtt](https://pypi.org/project/aiomqtt/)
+* [pycomfoair](https://pypi.org/project/pycomfoair/)
 * [python-slugify](https://pypi.org/project/python-slugify/)
 
 ## How to use
