@@ -116,7 +116,7 @@ class ComfoAirMqttBridge:
         self._data_received = asyncio.Event()
         self._cancelled = False
 
-    def _topic(self, name):
+    def _topic(self, name: str) -> str:
         return f"{self._base_topic}/{name}"
 
     def _hass_topic(self, component: str, object_id: str) -> str:
