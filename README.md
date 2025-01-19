@@ -8,22 +8,22 @@ Tested devices:
 
 [Home Assistant](https://www.home-assistant.io/), when configured for [MQTT discovery](https://www.home-assistant.io/docs/mqtt/discovery/), can auto-detect fans and sensors published by this program.
 
-## Dependencies
-* Python >= 3.8
-* [aiomqtt](https://pypi.org/project/aiomqtt/)
-* [pycomfoair](https://pypi.org/project/pycomfoair/)
-* [python-slugify](https://pypi.org/project/python-slugify/)
+## Installation
+
+```sh
+pipx install --global git+https://github.com/mtdcr/comfoair-mqtt-bridge
+```
 
 ## How to use
 
 * Using a real serial port:
 ```sh
-comfoair-mqtt-bridge.py --broker mqtt://broker.local --port /dev/ttyUSB0
+comfoair-mqtt-bridge --broker mqtt://broker.local --port /dev/ttyUSB0
 ```
 
 * With a serial port reachable over tcp, e.g. using ser2net:
 ```sh
-comfoair-mqtt-bridge.py --broker mqtt://broker.local --port socket://sbc.local:51765
+comfoair-mqtt-bridge --broker mqtt://broker.local --port socket://sbc.local:51765
 ```
 When used in combination with Home Assistant, add the `--hass` option.
 
@@ -45,7 +45,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/srv/homeassistant/bin/python /usr/local/bin/comfoair-mqtt-bridge.py --broker mqtt://broker.local --port /dev/ttyUSB0 --hass
+ExecStart=/usr/local/bin/comfoair-mqtt-bridge --broker mqtt://broker.local --port /dev/ttyUSB0 --hass
 Restart=on-failure
 RestartSec=5s
 DynamicUser=yes
@@ -57,7 +57,7 @@ SupplementaryGroups=dialout
 [Install]
 WantedBy=multi-user.target
 ```
-Edit paths and URLs to match your setup. In this example, `/srv/homeassistant` is a Python [venv](https://docs.python.org/3/library/venv.html), into which the dependencies were installed using [pip](https://docs.python.org/3/installing/index.html).
+Edit paths and URLs to match your setup.
 
 Then enable and start the service:
 ```sh
