@@ -14,3 +14,6 @@ python-slugify = "^8.0.0"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+comfoair-mqtt-bridge = "comfoair_mqtt_bridge.cli:main"

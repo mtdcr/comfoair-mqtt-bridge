@@ -21,23 +21,19 @@
 # THE SOFTWARE.
 #
 
-import argparse
 import asyncio
 import json
 import logging
-import signal
 import ssl
-import sys
 from functools import partial
-from typing import Callable, Tuple, Union
+from typing import Awaitable, Callable, Tuple, Union
 from urllib.parse import urlparse
 
-from aiomqtt import Client, MqttError, Will
+from aiomqtt import Client, Will
 from comfoair.asyncio import ComfoAir
 from slugify import slugify
 
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.StreamHandler())
+from . import logger
 
 
 class ComfoAirMqttBridge:
@@ -130,26 +126,27 @@ class ComfoAirMqttBridge:
         await self._ca.set_speed(speed)
         return True
 
-    async def _cmd_on_off(self, data: str) -> bool:
+    async def _cmd_on_off(self, data: str) -> None:
         speed = {"ON": self._turn_on_speed, "OFF": 1}.get(data)
-        return speed and await self._set_speed(speed)
+        if speed is not None:
+            await self._set_speed(speed)
 
-    async def _cmd_speed(self, data: str) -> bool:
+    async def _cmd_speed(self, data: str) -> None:
         if data not in self.PRESET_MODES:
-            return False
+            return
         speed = self.PRESET_MODES.index(data) + 1
-        return await self._set_speed(speed)
+        await self._set_speed(speed)
 
     async def _emulate_keypress(self, data: str, ms: int) -> None:
         if not data.isnumeric():
-            return False
+            return
 
         mask = int(data)
         if not 1 <= mask <= 64:
-            return False
+            return
 
         await self._ca.emulate_keypress(mask, ms)
-        return True
+        return
 
     async def _keys_short(self, data: str) -> None:
         return await self._emulate_keypress(data, 100)
@@ -172,7 +169,7 @@ class ComfoAirMqttBridge:
 
         await self._publish(mqtt, self._topic(name), value)
 
-    async def _raw_event(self, mqtt, ev: Tuple[int, bytes]) -> None:
+    async def _raw_event(self, ev: Tuple[int, bytes]) -> None:
         self._data_received.set()
         cmd, data = ev
         if self._cache.get(cmd) == data:
@@ -320,7 +317,7 @@ class ComfoAirMqttBridge:
         await self._publish(mqtt, topic, config)
 
         # https://www.home-assistant.io/integrations/sensor.mqtt/
-        for sensor, attrs in self.SENSORS.items():
+        for attrs in self.SENSORS.values():
             name, unit = attrs
             object_id = f"{self._device_id}-{name}"
             config = {
@@ -341,7 +338,7 @@ class ComfoAirMqttBridge:
             await self._publish(mqtt, topic, config)
 
     async def _subscribe(
-        self, mqtt, topic: str, callback: Callable[[str], None]
+        self, mqtt, topic: str, callback: Callable[[str], Awaitable[None]]
     ) -> None:
         if topic not in self._callbacks:
             self._callbacks[topic] = set()
@@ -349,7 +346,7 @@ class ComfoAirMqttBridge:
         await mqtt.subscribe(topic)
 
     async def _unsubscribe(
-        self, mqtt, topic: str, callback: Callable[[str], None]
+        self, mqtt, topic: str, callback: Callable[[str], Awaitable[None]]
     ) -> None:
         self._callbacks[topic].remove(callback)
         if not self._callbacks[topic]:
@@ -419,11 +416,10 @@ class ComfoAirMqttBridge:
         ) as mqtt:
             asyncio.create_task(self._watchdog(mqtt))
 
-            raw_event = partial(self._raw_event, mqtt)
             cooked_event = partial(self._cooked_event, mqtt)
 
             await self._ca.connect()
-            self._ca.add_listener(raw_event)
+            self._ca.add_listener(self._raw_event)
             for sensor in self.SENSORS:
                 self._ca.add_cooked_listener(sensor, cooked_event)
 
@@ -445,66 +441,5 @@ class ComfoAirMqttBridge:
 
             for sensor in self.SENSORS:
                 self._ca.remove_cooked_listener(sensor, cooked_event)
-            self._ca.remove_listener(raw_event)
+            self._ca.remove_listener(self._raw_event)
             await self._ca.shutdown()
-
-
-async def main(cfg: dict) -> None:
-    if cfg["debug"]:
-        logger.setLevel(logging.DEBUG)
-    try:
-        await ComfoAirMqttBridge(cfg["port"]).run(cfg["broker"], cfg["hass"])
-    except MqttError as exc:
-        logger.critical(exc)
-        sys.exit(1)
-
-
-def options() -> dict:
-    cfg = {
-        "config": "/var/lib/comfoair-mqtt-bridge/config.json",
-        "broker": "mqtt://localhost",
-        "port": "/dev/ttyUSB0",
-    }
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config", help=f"Location of config file (default: {cfg['config']})"
-    )
-    parser.add_argument(
-        "--broker", help=f"MQTT broker (default: {cfg['broker']})"
-    )
-    parser.add_argument("--port", help=f"Serial port (default: {cfg['port']})")
-    parser.add_argument(
-        "--hass",
-        action="store_true",
-        help="Publish discovery information for Home Assistant",
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable logging of debug messages"
-    )
-
-    args = parser.parse_args()
-    filename = args.config or cfg["config"]
-
-    try:
-        with open(filename, "r") as f:
-            cfg.update(json.load(f))
-    except OSError as exc:
-        if args.config or not isinstance(exc, FileNotFoundError):
-            logger.error("Failed to open configuration file: %s", exc)
-            sys.exit(1)
-    except json.JSONDecodeError as exc:
-        logger.error("Failed to parse configuration file: %s", exc)
-        sys.exit(1)
-
-    for key, value in vars(args).items():
-        if value is not None:
-            cfg[key] = value
-
-    return cfg
-
-
-try:
-    asyncio.run(main(options()))
-except KeyboardInterrupt:
-    pass
