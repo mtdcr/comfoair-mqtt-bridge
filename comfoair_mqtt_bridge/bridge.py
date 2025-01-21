@@ -283,7 +283,7 @@ class ComfoAirMqttBridge:
 
         logger.debug(f"Publish: {topic} {message}")
         assert isinstance(message, bytes)
-        await mqtt.publish(topic, message, qos=2, retain=True)
+        await mqtt.publish(topic, message, qos=0, retain=True)
 
     async def _publish_availability(self, mqtt, status: bool) -> None:
         await self._publish(
@@ -403,7 +403,7 @@ class ComfoAirMqttBridge:
             tls_context = ssl.create_default_context()
 
         will = Will(
-            self._topic("availability"), payload=b"offline", qos=2, retain=True
+            self._topic("availability"), payload=b"offline", qos=1, retain=True
         )
         async with Client(
             p.hostname,
