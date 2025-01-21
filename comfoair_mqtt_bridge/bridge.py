@@ -262,8 +262,7 @@ class ComfoAirMqttBridge:
             logger.error("Invalid payload: %s", message.payload)
         else:
             for callback in callbacks:
-                if not await callback(data):
-                    logger.error("Invalid parameter: %s", data)
+                await callback(data)
 
     async def _publish(
         self,
